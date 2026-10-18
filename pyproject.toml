@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osc001-viewer"
+version = "0.1.0"
+description = "osc001(DPScope SE)のスコープ・ロガー・ロジックアナライザ画面と、外部(LLM・スクリプト)からの操作口"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = ["numpy>=1.26"]
+
+[project.scripts]
+osc001ctl = "osc001_viewer.cli:main"
+osc001d = "osc001_viewer.daemon:main"
+osc001-viewer = "osc001_viewer.app:main"
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6", "pyqtgraph>=0.13"]
+dev = ["pytest>=7.4"]
+
+[tool.setuptools]
+# デバイス API(submodule libs/api の osc001.py、stdlib だけの単一モジュール)も一緒に入れる
+py-modules = ["osc001"]
+
+[tool.setuptools.package-dir]
+"" = "libs/api/python"
+osc001_viewer = "src/osc001_viewer"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
