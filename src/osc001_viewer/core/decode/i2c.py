@@ -7,7 +7,7 @@ START の直後のバイトはアドレス + R/W。記録の先頭が START の�
 
 import numpy as np
 
-from . import MIN_SPB, Result, hex2
+from . import MIN_SPB, Result, hex2, num
 
 
 def decode(cap, o):
@@ -30,7 +30,8 @@ def decode(cap, o):
 
     def start(i, rep):
         r.ann.append({"row": 0, "t0": cap.time(i), "t1": cap.time(i) + half, "label": "Sr" if rep else "S",
-                      "kind": "ctl"})
+                      "kind": "ctl", "tip": "Repeated START(STOP を挟まずに次の転送を始める)" if rep else
+                      "START(SCL が High の間に SDA が立下り)"})
         r.items.append({"t": cap.time(i), "text": "Repeated START" if rep else "START"})
 
     trig = o.get("trigger") or {}
@@ -38,7 +39,8 @@ def decode(cap, o):
     just_after_start = (sda[0] == 0 and scl[0] == 1) or \
         (trig_on_sda_fall and len(rises) and r.spb and rises[0] < 1.5 * r.spb)
     if just_after_start:                                   # START の直後から記録が始まった
-        r.ann.append({"row": 0, "t0": 0.0, "t1": cap.time(0), "label": "S", "kind": "ctl"})
+        r.ann.append({"row": 0, "t0": 0.0, "t1": cap.time(0), "label": "S", "kind": "ctl",
+                      "tip": "START(記録の前。トリガ点を START とみなして補った)"})
         r.items.append({"t": 0.0, "text": "START(記録の前。トリガ点から補った)"})
         r.notes.append("START は記録の前。トリガ点(t = 0)を START とみなした")
         in_tx = True
@@ -48,7 +50,8 @@ def decode(cap, o):
                 start(i, in_tx)
                 in_tx, bits, first_byte = True, [], True
             else:                                          # STOP
-                r.ann.append({"row": 0, "t0": cap.time(i) - half, "t1": cap.time(i), "label": "P", "kind": "ctl"})
+                r.ann.append({"row": 0, "t0": cap.time(i) - half, "t1": cap.time(i), "label": "P", "kind": "ctl",
+                              "tip": "STOP(SCL が High の間に SDA が立上り)"})
                 r.items.append({"t": cap.time(i), "text": "STOP"})
                 in_tx, bits = False, []
             continue
@@ -64,14 +67,19 @@ def decode(cap, o):
                 if first_byte:
                     label, kind = "%s %s" % (hex2(b >> 1), "R" if b & 1 else "W"), "addr"
                     desc = "アドレス 0x%s %s" % (hex2(b >> 1), "R(読み出し)" if b & 1 else "W(書き込み)")
+                    tip = "アドレス 0x%s(7 ビット)+ %s\n送られたバイトは 0x%s" % (
+                        hex2(b >> 1), "R(読み出し)" if b & 1 else "W(書き込み)", hex2(b))
                 else:
                     label, kind, desc = hex2(b), "data", "データ 0x%s" % hex2(b)
-                r.ann.append({"row": 0, "t0": byte_t0, "t1": t_end, "label": label, "kind": kind})
+                    tip = "データ 0x%s(%s)" % (hex2(b), num(b))
+                r.ann.append({"row": 0, "t0": byte_t0, "t1": t_end, "label": label, "kind": kind, "tip": tip})
                 pending = (byte_t0, desc)
             elif len(bits) == 9:
                 ack = bits[8] == 0
                 r.ann.append({"row": 0, "t0": cap.time(i) - half, "t1": cap.time(i) + half, "label": "A" if ack else "N",
-                              "kind": "ack" if ack else "nack"})
+                              "kind": "ack" if ack else "nack",
+                              "tip": "ACK(受信側が SDA を Low にして応答)" if ack else
+                              "NACK(SDA が High のまま。読み出しの最後のバイトなら正常)"})
                 t0, desc = pending
                 r.items.append({"t": t0, "text": "%s  %s" % (desc, "ACK" if ack else "NACK")})
                 bits, first_byte = [], False

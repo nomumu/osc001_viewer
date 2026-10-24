@@ -3,11 +3,14 @@
 opts: sck, mosi, miso, cs(LA の ch。mosi・miso・cs は省略可)、mode(0〜3)、cs_active_high。
 取り込みエッジ: CPHA = 0 なら先のエッジ(CPOL 0 で立上り、1 で立下り)、CPHA = 1 なら後のエッジ。
 CS が記録の先頭ですでに有効なら、その区間は記録の前に始まっている(先頭のビットが欠けていることがある)。
+その区間が記録の中で終わるなら、バイトの区切りは CS の終わりから合わせる(欠けたバイトの残りは飛ばす)。
+CS が無効な間の SCLK のレベル(アイドル)が設定の CPOL と違えば注意する。モード 0 と 3(1 と 2)は
+読むエッジが同じなので、デコード結果からは食い違いに気づけないため。
 """
 
 import numpy as np
 
-from . import MIN_SPB, Result, hex2
+from . import MIN_SPB, Result, hex2, num
 
 
 def decode(cap, o):
@@ -30,10 +33,28 @@ def decode(cap, o):
         if r.spb < MIN_SPB:
             r.notes.append("SCLK 1 周期あたり %.1f サンプルしかなく、デコードできない" % r.spb)
             return r
+    skip = 0
     if cs_ch:
         act = cap.bits[cs_ch].astype(int) if o.get("cs_active_high") else 1 - cap.bits[cs_ch].astype(int)
         if act[0]:
-            r.notes.append("CS は記録の前から有効。最初のバイトの先頭ビットが欠けていることがある(遅れの短いレートを使う)")
+            ends = np.nonzero(act == 0)[0]
+            if len(ends):
+                skip = int(np.count_nonzero(edges < ends[0])) % 8
+            if skip:
+                r.notes.append("CS は記録の前から有効。最初のバイトは %d ビットしか記録に無いので飛ばし、"
+                               "バイトの区切りは CS の終わりから合わせた" % skip)
+            elif not len(ends):
+                r.notes.append("CS は記録の前から有効。最初のバイトの先頭ビットが欠けていることがある(遅れの短いレートを使う)")
+            else:
+                r.notes.append("CS は記録の前から有効。バイトの区切りは CS の終わりから合わせた")
+        idle = sck[act == 0]
+        if len(idle) >= 8:
+            level = int(round(float(idle.mean())))
+            if level != cpol:
+                same = {0: 3, 3: 0, 1: 2, 2: 1}[mode]
+                r.notes.append("CS が無効な間の SCLK は %s(CPOL = %d)。設定のモード %d は CPOL = %d。"
+                               "読むエッジが同じモード %d ではないか確かめる"
+                               % ("High" if level else "Low", level, mode, cpol, same))
     else:
         act = np.ones(cap.n, dtype=int)
     half = 0.5 / r.bitrate if r.bitrate else 0.0
@@ -41,13 +62,17 @@ def decode(cap, o):
     data = {"MOSI": cap.bits[mosi_ch] if mosi_ch else None, "MISO": cap.bits[miso_ch] if miso_ch else None}
     acc = {k: 0 for k in data}
     nb, t0, prev_act = 0, None, act[0]
+    nbyte = None if act[0] else 0                          # CS 区間の何バイト目か(区間の始まりが記録の前なら不明)
     for i in range(cap.n):
         if act[i] != prev_act:
             if not act[i] and nb:                          # CS が切れた: 端数のビットは捨てる
                 r.notes.append("CS の区間が 8 ビットの倍数で終わらなかった(%d ビット余り)" % nb)
-            nb, prev_act = 0, act[i]
+            nb, nbyte, prev_act = 0, 0, act[i]
             continue
         if not act[i] or i not in eset:
+            continue
+        if skip:                                           # 記録の前に始まったバイトの残り
+            skip -= 1
             continue
         if nb == 0:
             t0 = cap.time(i) - half
@@ -58,9 +83,13 @@ def decode(cap, o):
         if nb == 8:
             t1 = cap.time(i) + half
             vals = []
+            if nbyte is not None:
+                nbyte += 1
+            where = "CS 区間の %d バイト目" % nbyte if nbyte else "CS 区間の始まりは記録の前"
             for row, k in enumerate(rows):
                 r.ann.append({"row": row, "t0": t0, "t1": t1, "label": hex2(acc[k]),
-                              "kind": "data" if k == "MOSI" else "addr"})
+                              "kind": "data" if k == "MOSI" else "addr",
+                              "tip": "%s 0x%s(%s)\n%s、モード %d、MSB 先" % (k, hex2(acc[k]), num(acc[k]), where, mode)})
                 vals.append("%s 0x%s" % (k, hex2(acc[k])))
             r.items.append({"t": t0, "text": "  /  ".join(vals)})
             nb = 0

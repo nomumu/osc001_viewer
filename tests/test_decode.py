@@ -59,6 +59,14 @@ def test_uart_basic_and_head_loss():
     assert [x["text"].split()[1] for x in r.items] == ["0x4F", "0x4B", "0x0D", "0x0A"]
     assert r.errors == 0 and any("記録の前" in n for n in r.notes)
     assert r.spb == pytest.approx(8.5, rel=0.01)
+    assert r.ann[0]["tip"] == "RX 0x4F(2進:0100 1111、10進:79、ASCII:'O')\n8N1:スタート + データ 8 ビット(LSB 先)+ ストップ"
+
+
+def test_ascii_names():
+    from osc001_viewer.core.decode import asc, num
+    assert [asc(b) for b in (0x41, 0x20, 0x0D, 0x1B, 0x7F, 0x80)] == \
+        ["'A'", "' '", "\\r(CR)", "制御文字 ESC", "制御文字 DEL", "ASCII 外"]
+    assert num(0x0A) == "2進:0000 1010、10進:10、ASCII:\\n(LF)"
 
 
 def test_uart_tx_rx_inverted_parity():
@@ -121,6 +129,9 @@ def test_i2c_write_read_with_repeated_start():
     assert t == ["START", "アドレス 0x50 W(書き込み)  ACK", "データ 0x10  ACK", "Repeated START",
                  "アドレス 0x50 R(読み出し)  ACK", "データ 0x3A  NACK", "STOP"]
     assert r.bitrate == pytest.approx(100000, rel=0.03)
+    tips = [a["tip"] for a in r.ann]
+    assert "アドレス 0x50(7 ビット)+ W(書き込み)\n送られたバイトは 0xA0" in tips
+    assert tips[-2].startswith("NACK") and tips[-1].startswith("STOP")
 
 
 def test_i2c_start_before_record():
@@ -156,12 +167,33 @@ def test_spi_modes(mode):
                {"sck": 1, "mosi": 2, "miso": 3, "cs": 4, "mode": mode})
     assert [x["text"] for x in r.items] == ["MOSI 0x9F  /  MISO 0xFF", "MOSI 0x00  /  MISO 0xEF",
                                             "MOSI 0x00  /  MISO 0x40"]
+    assert r.ann[0]["tip"] == "MOSI 0x9F(2進:1001 1111、10進:159、ASCII:範囲外)\nCS 区間の 1 バイト目、モード %d、MSB 先" % mode
 
 
 def test_spi_cs_before_record_warns():
     sck, mosi, miso, cs = spi_wave(100000, 0.0, 0, [0x9F], [0xFF])
     r = decode("spi", cap_of({1: sck, 2: mosi, 3: miso, 4: cs}), {"sck": 1, "mosi": 2, "miso": 3, "cs": 4})
     assert any("記録の前から有効" in n for n in r.notes)
+
+
+def test_spi_head_loss_aligned_from_cs_end():
+    # 実機(979.4 kHz、遅れ 7.3 µs)で、CS の直後の SCK(5 µs 後)が記録の前になった形
+    sck, mosi, miso, cs = spi_wave(100000, 0.0, 0, [0x9F, 0x00, 0x00, 0x00], [0xFF, 0xEF, 0x40, 0x18])
+    r = decode("spi", cap_of({1: sck, 2: mosi, 3: miso, 4: cs}), {"sck": 1, "mosi": 2, "miso": 3, "cs": 4})
+    assert [x["text"] for x in r.items] == ["MOSI 0x00  /  MISO 0xEF", "MOSI 0x00  /  MISO 0x40",
+                                            "MOSI 0x00  /  MISO 0x18"]
+    assert any("7 ビットしか記録に無い" in n for n in r.notes)
+    assert not any("8 ビットの倍数" in n for n in r.notes)
+
+
+def test_spi_idle_level_mismatch():
+    sck, mosi, miso, cs = spi_wave(100000, 30e-6, 3, [0x9F, 0x00], [0xFF, 0xEF])
+    c = cap_of({1: sck, 2: mosi, 3: miso, 4: cs}, fs=490900.0)
+    o = {"sck": 1, "mosi": 2, "miso": 3, "cs": 4}
+    r = decode("spi", c, dict(o, mode=0))
+    assert [x["text"] for x in r.items] == ["MOSI 0x9F  /  MISO 0xFF", "MOSI 0x00  /  MISO 0xEF"]
+    assert any("モード 3 ではないか" in n for n in r.notes)
+    assert not any("CPOL" in n for n in decode("spi", c, dict(o, mode=3)).notes)
 
 
 def can_wave(rate, t0, ident, data, inv=False, flip=None):
@@ -194,6 +226,8 @@ def test_can_frame_crc_ok_and_head_loss():
     assert r.items[0]["text"].startswith("ID 0x123  DLC 2  [11 22]") and "CRC" in r.items[0]["text"]
     assert "OK" in r.items[0]["text"] and "ACK あり" in r.items[0]["text"] and r.errors == 0
     assert any(a["kind"] == "stuff" for a in r.ann) or "スタッフビット 0" in r.items[1]["text"]
+    tips = {a["label"]: a["tip"] for a in r.ann if a["row"] == 0}
+    assert tips["DLC 2"] == "DLC = 2(データ長 2 バイト)" and tips["RTR"].startswith("RTR = 0(データフレーム")
 
 
 def test_can_inverted_and_crc_error():

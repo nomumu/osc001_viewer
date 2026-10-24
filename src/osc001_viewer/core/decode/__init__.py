@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 class Result:
     protocol: str
     rows: list                                   # 帯の行の名前
-    ann: list = field(default_factory=list)      # {"row", "t0", "t1", "label", "kind"}。kind: data/addr/ack/nack/ctl/stuff/err
+    ann: list = field(default_factory=list)      # {"row", "t0", "t1", "label", "kind"[, "tip"]}。kind: data/addr/ack/nack/ctl/stuff/err
+                                                 # tip は帯のツールチップ用の説明(無ければ label を出す)
     items: list = field(default_factory=list)    # {"t", "text"}(一覧)
     notes: list = field(default_factory=list)
     errors: int = 0
@@ -47,7 +48,22 @@ def hex2(b):
     return "%02X" % b
 
 
+CTRL = ("NUL SOH STX ETX EOT ENQ ACK BEL BS HT LF VT FF CR SO SI "
+        "DLE DC1 DC2 DC3 DC4 NAK SYN ETB CAN EM SUB ESC FS GS RS US").split()
+
+
+def num(b):
+    """ツールチップ用: 2 進(4 ビットずつ)・10 進・ASCII。"""
+    s = "%08d" % int(bin(b)[2:])
+    return "2進:%s %s、10進:%d、ASCII:%s" % (s[:4], s[4:], b, "範囲外" if b >= 128 else asc(b))
+
+
 def asc(b):
+    """ASCII としての読み。印字できない文字も記号 1 つにせず、名前で書く。"""
     if 32 <= b < 127:
         return "'%s'" % chr(b)
-    return {10: "\\n", 13: "\\r", 9: "\\t"}.get(b, "·")
+    if b in (9, 10, 13):
+        return {9: "\\t(TAB)", 10: "\\n(LF)", 13: "\\r(CR)"}[b]
+    if b < 32 or b == 127:
+        return "制御文字 %s" % (CTRL[b] if b < 32 else "DEL")
+    return "ASCII 外"

@@ -12,7 +12,7 @@ opts: rx, tx(LA の ch 1〜4 か None)、baud、format("8N1" / "8E1" / "8O1")、
 
 import numpy as np
 
-from . import MIN_SPB, Result, asc, hex2
+from . import MIN_SPB, Result, asc, hex2, num
 
 BAUD_TOL = 0.06
 
@@ -105,7 +105,10 @@ def _frames(cap, v, name, row, baud, fmt, r, start=None):
             err.append("フレーミング誤り")
         t1 = ts + (nbits + 2) * tb
         r.ann.append({"row": row, "t0": ts, "t1": t1, "label": hex2(b), "kind": "err" if err else
-                      ("addr" if name == "TX" else "data")})
+                      ("addr" if name == "TX" else "data"),
+                      "tip": "%s 0x%s(%s)\n%s:スタート + データ 8 ビット(LSB 先)%s+ ストップ%s"
+                             % (name, hex2(b), num(b), fmt, "+ パリティ " if nbits == 9 else "",
+                                "\n" + "・".join(err) if err else ("、パリティ OK" if nbits == 9 else ""))})
         r.items.append({"t": ts, "text": "%s  0x%s  %s%s" % (name, hex2(b), asc(b), ("  " + "・".join(err)) if err else
                                                           ("  パリティ OK" if nbits == 9 else ""))})
         r.errors += 1 if err else 0

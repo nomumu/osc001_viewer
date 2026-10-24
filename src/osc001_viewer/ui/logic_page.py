@@ -1,7 +1,8 @@
 """ロジック画面: LA の 4 ch(D1〜D4)と、UART・I2C・SPI・CAN のデコード結果(帯と一覧)。
 
 LA トリガ(エッジと監視 ch)は利用者が手動で決める(反転した信号もあり得るので、デコーダから自動では決めない)。
-デコーダはその設定での「通信の始まり」を参考に出し、食い違えば確かめるよう促すだけ。
+デコーダはその設定での「通信の始まり」を参考に出し、食い違えば LA トリガの欄で注意する。
+「合わせる」ボタンを押したときだけ、通信の始まりに合わせる。
 取得は LaWorker スレッドで行い、待機は中止できる。ロジック画面にいる間はスコープの取得を止める
 (スコープの arm は LA の待機を解くため)。ロガーの op9 は待機中に読んでも安全(実測)。
 """
@@ -42,6 +43,10 @@ def _font(px, mono=False, bold=False):
     f.setPixelSize(px)
     f.setBold(bold)
     return f
+
+
+def _signed_t(v):
+    return ("+" if v > 0 else "") + fmt_t(v)
 
 
 def bitrate_of(proto, o):
@@ -227,8 +232,11 @@ class LogicPage(QWidget):
             fill.setAlpha(55)
             rect.setBrush(QBrush(fill))
             pen = QPen(col)
+            pen.setWidth(0)                   # 幅 0 = 1 px の線。幅 1 だと当たり判定が軸の 1 単位(1 秒)に広がる
             pen.setCosmetic(True)
             rect.setPen(pen)
+            rect.setToolTip("%s\n%s 〜 %s(幅 %s)" % (a.get("tip") or a["label"], _signed_t(a["t0"]), _signed_t(a["t1"]),
+                                                     fmt_t(a["t1"] - a["t0"])))
             self.plot.addItem(rect)
             self._items.append(rect)
             if (t1 - t0) * px_per_s >= 6 * len(a["label"]) + 4:
@@ -298,6 +306,14 @@ class LogicSide(QWidget):
         self.guard = note("「自動」では監視 ch を空にしてください。この組み合わせは装置がハングするため拒否します。",
                           warn=True)
         c.add(self.guard)
+        self.trig_mis = c.add(note(warn=True))
+        self.btn_match = QPushButton("")
+        self.btn_match.clicked.connect(self._match_trigger)
+        h = QHBoxLayout()
+        h.addWidget(self.btn_match)
+        h.addStretch(1)
+        self.match_row = self._wrap(h)
+        c.add(self.match_row)
         h = QHBoxLayout()
         self.btn_arm = QPushButton("Arm")
         self.btn_arm.setObjectName("run")
@@ -347,6 +363,17 @@ class LogicSide(QWidget):
 
     def _set_edge(self, e):
         self._edge = e
+        self._render()
+
+    def _match_trigger(self):
+        p = self.protocol()
+        if not p:
+            return
+        chs, edge, _ = start_of(p, self.opts[p])
+        for ch, cb in self.mask.items():
+            cb.setChecked(ch in chs)
+        self._edge = edge
+        self.edge.set(edge)
         self._render()
 
     def _set_proto(self, p):
@@ -437,6 +464,7 @@ class LogicSide(QWidget):
         self.btn_arm.setEnabled(not bad and not self.armed)
         p = self.protocol()
         warn, nt = [], []
+        mis = ""
         if not p:
             self.kv_d.set("通信の始まり", "—")
             self.kv_d.set("1 ビット", "—")
@@ -466,13 +494,19 @@ class LogicSide(QWidget):
                 warn.append("最初のクロックエッジ(CS の約 %s 後)が記録の開始(+%s)より前なら、先頭ビットを取れません。"
                             % (fmt_t(0.5 / br), fmt_t(la.latency(fs))))
             m = self.channels()
-            if chs and edge and (self._edge != edge or not any(c in m for c in chs)):
-                nt.append("LA トリガ(%s の%s)は、この設定の通信の始まり(%s の%s)と違います。意図した設定か確かめてください。"
-                          % ("・".join("D%d" % c for c in m) or "監視なし",
-                             {"falling": "立下り", "rising": "立上り", "auto": "自動"}[self._edge],
-                             "・".join("D%d" % c for c in chs if c), ename))
+            chs = [c for c in chs if c]
+            if chs and edge and (self._edge != edge or not set(m) or not set(m) <= set(chs)):
+                mis = "%s の%s" % ("・".join("D%d" % c for c in chs), ename)
+                self.trig_mis.setText("いまの LA トリガ(%s の%s)は、デコーダの通信の始まり(%s)と違います。"
+                                      "違う ch で発火すると、通信の先頭が記録に入りません。"
+                                      % ("・".join("D%d" % c for c in m) or "監視なし",
+                                         {"falling": "立下り", "rising": "立上り", "auto": "自動"}[self._edge], mis))
+                self.btn_match.setText("%sに合わせる" % mis)
             if p == "can":
                 nt.append("CANH/CANL を直接つながず、トランシーバの RXD(ロジックレベル)を入れてください。")
+        self.trig_mis.setVisible(bool(mis))
+        self.match_row.setVisible(bool(mis))
+        self.btn_match.setEnabled(not self.armed)
         self.dec_warn.setText("\n".join(warn))
         self.dec_warn.setVisible(bool(warn))
         self.dec_note.setText("\n".join(nt))

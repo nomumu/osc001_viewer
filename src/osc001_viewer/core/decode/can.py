@@ -6,7 +6,7 @@ SOF〜CRC はビットスタッフィング(同じ値が 5 つ続いた後の逆
 記録の先頭がドミナント(SOF の途中)なら、トリガ点(t = 0)を SOF の始まりとして補う。
 """
 
-from . import MIN_SPB, Result, hex2
+from . import MIN_SPB, Result, hex2, num
 
 SAMPLE_POINT = 0.75
 
@@ -143,21 +143,37 @@ def _emit(r, fields, stuffs, tb, full_id, ide, dlc, data, crc, rtr):
         labels["D%d" % k] = hex2(b)
     seg = {}
     order = []
-    for name, t0, _ in fields:
+    bits = {}
+    for name, t0, val in fields:
         if name not in seg:
             seg[name] = [t0, t0 + tb]
             order.append(name)
         else:
             seg[name][1] = t0 + tb
+        bits.setdefault(name, []).append(int(val))
+    one = {k: v[0] for k, v in bits.items()}
+    tips = {"SOF": "SOF(フレームの始まり、ドミナント 1 ビット)",
+            "ID": "ID 0x%X(%s、%d ビット)" % (full_id, "拡張" if ide else "標準", len(bits.get("ID", []))),
+            "RTR": "RTR = %d(%s)" % (one.get("RTR", 0), "リモートフレーム" if rtr else "データフレーム"),
+            "IDE": "IDE = %d(%s)" % (one.get("IDE", 0), "拡張 ID" if ide else "標準 ID"),
+            "r0": "予約ビット r0 = %d" % one.get("r0", 0), "r1": "予約ビット r1 = %d" % one.get("r1", 0),
+            "DLC": "DLC = %d(データ長 %d バイト)" % (dlc, min(dlc, 8)),
+            "CRC": "CRC 0x%X(15 ビット)" % crc,
+            "ACK": "ACK スロット(ドミナント = どこかのノードが受信を応答)",
+            "EOF": "EOF(フレームの終わり、レセッシブ 7 ビット)"}
+    for k, b in enumerate(data):
+        tips["D%d" % k] = "データ %d バイト目 0x%s(%s)" % (k + 1, hex2(b), num(b))
     for name in order:
         lab = labels.get(name, name)
         if not lab:
             continue
         kind = "addr" if name == "ID" else ("ack" if name == "ACK" else ("data" if name.startswith("D") and
                                                                         name != "DLC" else "ctl"))
-        r.ann.append({"row": 0, "t0": seg[name][0], "t1": seg[name][1], "label": lab, "kind": kind})
+        r.ann.append({"row": 0, "t0": seg[name][0], "t1": seg[name][1], "label": lab, "kind": kind,
+                      "tip": tips.get(name, lab)})
     for t in stuffs:
-        r.ann.append({"row": 1, "t0": t, "t1": t + tb, "label": "s", "kind": "stuff"})
+        r.ann.append({"row": 1, "t0": t, "t1": t + tb, "label": "s", "kind": "stuff",
+                      "tip": "スタッフビット(同じレベルが 5 ビット続いたので挿入された逆レベル)"})
 
 
 def _cut(r, fields, stuffs, tb):
