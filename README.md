@@ -185,7 +185,7 @@ GUI と外部操作は同じ装置を共有します。上部バーに外部か�
 ```
 # osc001 log v1
 # start: 2026-10-18T19:52:36+09:00
-# device: DPScope SE (/dev/hidraw2, USB 1-14.1)
+# device: osc001 (/dev/hidraw2, USB 1-14.1)
 # source: op9 ±24 V (47.9 mV/count), interval 0.1 s, average 10
 # probe: ch1 ×1 / ch2 ×1(電圧はプローブ倍率を掛けた値)
 # zero_m0: ch1 495.0 / ch2 496.5 (既定値・0 V 合わせ未実施)

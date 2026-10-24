@@ -816,7 +816,7 @@ class MainWindow(QMainWindow):
         if not st:
             return
         tb = st["timebase"]
-        self.dev_label.setText("%s — DPScope SE" % (st["path"] or "未接続"))
+        self.dev_label.setText("%s — osc001" % (st["path"] or "未接続"))
         self.t_step.set_text(fmt_t(tb["tdiv"]))
         self.kv_h.set("実効 fs", fmt_hz(tb["fs"]))
         acq = tb["acq_time"]

@@ -117,7 +117,7 @@ class Logger(object):
         zero = st["zero"]
         head = ["# osc001 log v1",
                 "# start: %s" % t0.isoformat(timespec="seconds"),
-                "# device: DPScope SE (%s, USB %s)" % (st["path"], st["port"]),
+                "# device: osc001 (%s, USB %s)" % (st["path"], st["port"]),
                 "# source: op9 %s (%.3g mV/count), interval %g s, average %d"
                 % ("±24 V" if tap == 8 else "−1.9〜+3.1 V", osc001.VCOUNT[tap] * 1e3, interval, avg),
                 "# probe: ch1 ×%g / ch2 ×%g(電圧はプローブ倍率を掛けた値)" % (self.device.axis[1].probe,

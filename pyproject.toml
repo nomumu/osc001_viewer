@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "osc001-viewer"
 version = "0.1.0"
-description = "osc001(DPScope SE)のスコープ・ロガー・ロジックアナライザ画面と、外部(LLM・スクリプト)からの操作口"
+description = "osc001 のスコープ・ロガー・ロジックアナライザ画面と、外部(LLM・スクリプト)からの操作口"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
