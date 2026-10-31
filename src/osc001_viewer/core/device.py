@@ -215,7 +215,7 @@ class Device(object):
                 else:
                     sc.set_trigger(None)          # CH2 はソフトウェア。装置はフリーラン
             except ValueError as e:
-                raise DeviceError(str(e), "レベルを画面の範囲に入れるか、CH1 の V/div・0 V 位置を見直す")
+                raise DeviceError(str(e), "CH1 のトリガは入力端子で、×1 のレンジ(小さい V/div)なら約 −0.6〜+1.9 V、÷8 なら約 ±11 V まで。レベルを見直すか V/div を大きくする")
             self.trig = {"source": source, "edge": edge, "level": lvl, "mode": mode}
             return dict(self.trig)
 
@@ -240,9 +240,9 @@ class Device(object):
                 t = sc.capture_deep(timeout) if deep else sc.capture(timeout)
             except osc001.TriggerTimeout:
                 return None
-            except ValueError as e:                  # レンジを変えてレベルが窓の外に出た
+            except ValueError as e:                  # ×1 のレンジに変わってレベルが比較器の範囲の外に出た
                 raise DeviceError("トリガレベルを装置の値に直せない: %s" % e,
-                                  "レベルを画面の範囲に入れるか、V/div・0 V 位置を見直す")
+                                  "CH1 のトリガは入力端子で、×1 のレンジ(小さい V/div)なら約 −0.6〜+1.9 V、÷8 なら約 ±11 V まで。レベルを見直すか V/div を大きくする")
             if kind == "hw":
                 return self._frame(t, kind, "triggered" if t.triggered else "auto_free",
                                    0 if t.triggered else -1)
